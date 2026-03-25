@@ -433,7 +433,7 @@ function buildFinalReport(): void {
     "OT Hours",           // I col 9
     "Hours Worked",       // J col 10  (formula: =H+I)
     "OT Pay",             // K col 11  (formula: =I*F)
-    "Total Pay",          // L col 12  (formula: =J*F)
+    "Total Pay",          // L col 12  (formula: =H*F+K  reg pay + OT pay)
     "WC Rate",            // M col 13
     "WC Value",           // N col 14  (formula: =F*M*J)
   ];
@@ -483,7 +483,7 @@ function buildFinalReport(): void {
   dataRowNums.forEach((r) => {
     finalSheet.getRange(r, 10).setFormula(`=H${r}+I${r}`);           // Hours Worked
     finalSheet.getRange(r, 11).setFormula(`=I${r}*F${r}`);           // OT Pay
-    finalSheet.getRange(r, 12).setFormula(`=J${r}*F${r}`);           // Total Pay
+    finalSheet.getRange(r, 12).setFormula(`=H${r}*F${r}+K${r}`);     // Total Pay (reg pay + OT pay)
     finalSheet.getRange(r, 14).setFormula(`=F${r}*M${r}*J${r}`);     // WC Value
   });
 
