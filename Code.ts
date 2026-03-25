@@ -297,10 +297,21 @@ function cleanWorkersCompData(): void {
 
 // ─── Step 2: Final ────────────────────────────────────────────────────────────
 
+// Final sheet column layout (1-indexed):
+//   A(1)  Name          B(2)  SS#           C(3)  Employee Hire Date
+//   D(4)  WKC Code      E(5)  Check Week    F(6)  Hourly Wage
+//   G(7)  DOB           H(8)  Reg Hours     I(9)  OT Hours
+//   J(10) Hours Worked  K(11) OT Pay        L(12) Total Pay
+//   M(13) WC Rate       N(14) WC Value
+//
+// Columns J, K, L, N are Sheets formulas so the math is fully auditable.
+// Subtotal rows carry =SUM(N{start}:N{end}) rather than a hardcoded value.
+
 interface DataRow {
   wcCode: string;
   state: string;
-  values: CellValue[];
+  empName: string;
+  staticValues: CellValue[]; // 14 values; positions 10,11,12,14 are "" (formula slots)
 }
 
 function buildFinalReport(): void {
@@ -333,186 +344,195 @@ function buildFinalReport(): void {
     return;
   }
 
-  // --- Read clean sheet values (formulas already calculated) ---
+  // --- Read clean sheet display values (formulas already calculated) ---
   const cleanData = cleanSheet.getDataRange().getDisplayValues();
 
   const C = {
-    empName: 8, // I
-    concatKey: 9, // J
-    ssn: 10, // K
-    hireDate: 11, // L
-    state: 12, // M
+    empName:    8,  // I
+    concatKey:  9,  // J
+    ssn:        10, // K
+    hireDate:   11, // L
+    state:      12, // M
     hourlyWage: 13, // N
-    wcCode: 14, // O
-    wcRate: 15, // P
-    regHours: 6, // G
-    otHours: 7, // H
-    wcValue: 16, // Q
-    birthday: 17, // R
+    wcCode:     14, // O
+    wcRate:     15, // P
+    regHours:   6,  // G
+    otHours:    7,  // H
+    birthday:   17, // R
   };
 
-  // --- Collect and sort rows by WC Code then Employee Name ---
+  // --- Collect rows, skipping any with missing key data ---
   const dataRows: DataRow[] = [];
   for (let i = 1; i < cleanData.length; i++) {
     const row = cleanData[i];
-    const empName = row[C.empName];
-    const ssn = row[C.ssn];
-    const hireDate = row[C.hireDate];
-    const wcCode = row[C.wcCode];
-    const state = row[C.state];
-    const hourlyWage = parseFloat(row[C.hourlyWage].replace(/[$,]/g, "")) || 0;
-    const wcRate = row[C.wcRate];
-    const wcValue = parseFloat(row[C.wcValue].replace(/[$,]/g, "")) || 0;
-    const regHours = parseFloat(row[C.regHours]) || 0;
-    const otHours = parseFloat(row[C.otHours]) || 0;
-    const dob = row[C.birthday];
-    const hoursWorked = regHours + otHours;
-    const otPay = otHours * hourlyWage;
-    const totalPay = hoursWorked * hourlyWage;
+    const empName    = row[C.empName];
+    const ssn        = row[C.ssn];
+    const hireDate   = row[C.hireDate];
+    const wcCode     = row[C.wcCode];
+    const state      = row[C.state];
+    const hourlyWageStr = row[C.hourlyWage];
+    const wcRateStr  = row[C.wcRate];
+    const dob        = row[C.birthday];
 
-    // Skip rows with any NOT FOUND in key fields — they belong in Data Needs, not the final report
+    // Skip rows with any missing key field — they belong in Data Needs
+    const isMissing = (v: string) => v === "NOT FOUND" || v === "";
     if (
-      ssn === "NOT FOUND" ||
-      hireDate === "NOT FOUND" ||
-      wcCode === "NOT FOUND" ||
-      state === "NOT FOUND" ||
-      row[C.hourlyWage] === "NOT FOUND" ||
-      dob === "NOT FOUND"
+      isMissing(ssn) ||
+      isMissing(hireDate) ||
+      isMissing(wcCode) ||
+      isMissing(state) ||
+      isMissing(hourlyWageStr) ||
+      isMissing(dob)
     ) continue;
+
+    const hourlyWage = parseFloat(hourlyWageStr.replace(/[$,]/g, "")) || 0;
+    // WC Rate stored as decimal so formula arithmetic works (display format restores %)
+    const wcRate     = parseFloat(wcRateStr.replace(/%/g, "")) / 100 || 0;
+    const regHours   = parseFloat(row[C.regHours]) || 0;
+    const otHours    = parseFloat(row[C.otHours])  || 0;
 
     dataRows.push({
       wcCode,
       state,
-      values: [
-        empName,
-        ssn,
-        hireDate,
-        wcCode,
-        checkWeek,
-        hourlyWage,
-        dob,
-        hoursWorked,
-        otPay,
-        totalPay,
-        wcRate,
-        wcValue,
+      empName,
+      staticValues: [
+        empName,    // A(1)  Name
+        ssn,        // B(2)  SS#
+        hireDate,   // C(3)  Employee Hire Date
+        wcCode,     // D(4)  WKC Code
+        checkWeek,  // E(5)  Check Week
+        hourlyWage, // F(6)  Hourly Wage
+        dob,        // G(7)  DOB
+        regHours,   // H(8)  Reg Hours
+        otHours,    // I(9)  OT Hours
+        "",         // J(10) Hours Worked  ← formula
+        "",         // K(11) OT Pay        ← formula
+        "",         // L(12) Total Pay     ← formula
+        wcRate,     // M(13) WC Rate
+        "",         // N(14) WC Value      ← formula
       ],
     });
   }
 
-  // Sort by WC Code, then by Employee Name within each group
+  // Sort by WC Code, then Employee Name within each group
   dataRows.sort((a, b) => {
-    const codeCompare = String(a.wcCode).localeCompare(String(b.wcCode));
-    if (codeCompare !== 0) return codeCompare;
-    return String(a.values[0]).localeCompare(String(b.values[0]));
+    const cc = String(a.wcCode).localeCompare(String(b.wcCode));
+    return cc !== 0 ? cc : String(a.empName).localeCompare(String(b.empName));
   });
 
-  // --- Build final output with group header rows and subtotals ---
+  // --- Build output rows, tracking sheet row numbers for formula insertion ---
   const finalHeaders = [
-    "Name",
-    "SS#",
-    "Employee Hire Date",
-    "WKC Code",
-    "Check Week",
-    "Hourly Wage",
-    "DOB",
-    "Hours Worked",
-    "OT Pay",
-    "Total Pay",
-    "WC Rate",
-    "WC Value",
+    "Name",               // A col 1
+    "SS#",                // B col 2
+    "Employee Hire Date", // C col 3
+    "WKC Code",           // D col 4
+    "Check Week",         // E col 5
+    "Hourly Wage",        // F col 6
+    "DOB",                // G col 7
+    "Reg Hours",          // H col 8
+    "OT Hours",           // I col 9
+    "Hours Worked",       // J col 10  (formula: =H+I)
+    "OT Pay",             // K col 11  (formula: =I*F)
+    "Total Pay",          // L col 12  (formula: =J*F)
+    "WC Rate",            // M col 13
+    "WC Value",           // N col 14  (formula: =F*M*J)
   ];
+  const numCols = finalHeaders.length; // 14
 
   const outputRows: CellValue[][] = [finalHeaders];
-  const groupRows: number[] = [];
+  const groupRows:    number[] = [];
   const subtotalRows: number[] = [];
-  let currentCode: string | null = null;
-  let groupWcValue = 0;
+  // Sheet row number (1-indexed) for each actual data row
+  const dataRowNums:  number[] = [];
+  // For each subtotal, the range of data rows it should sum
+  const groupBounds: Array<{ subtotalSheet: number; startSheet: number; endSheet: number }> = [];
+
+  let currentCode:     string | null = null;
+  let groupStartSheet  = -1;
 
   const flushSubtotal = (): void => {
     if (currentCode === null) return;
-    outputRows.push([
-      `Subtotal — ${currentCode}`,
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      groupWcValue,
-    ]);
-    subtotalRows.push(outputRows.length);
-    groupWcValue = 0;
+    const lastDataSheet = outputRows.length; // last pushed row = last data row
+    outputRows.push([`Subtotal — ${currentCode}`, ...Array(numCols - 1).fill("") as CellValue[]]);
+    const subtotalSheetNum = outputRows.length;
+    subtotalRows.push(subtotalSheetNum);
+    groupBounds.push({ subtotalSheet: subtotalSheetNum, startSheet: groupStartSheet, endSheet: lastDataSheet });
   };
 
   dataRows.forEach((dr) => {
     if (dr.wcCode !== currentCode) {
       flushSubtotal();
-      outputRows.push([dr.wcCode, "", "", "", "", "", "", "", "", "", "", ""]);
+      outputRows.push([dr.wcCode, ...Array(numCols - 1).fill("") as CellValue[]]);
       groupRows.push(outputRows.length);
-      currentCode = dr.wcCode;
+      currentCode    = dr.wcCode;
+      groupStartSheet = -1; // will be set on first data row of this group
     }
-    groupWcValue +=
-      (typeof dr.values[11] === "number"
-        ? dr.values[11]
-        : parseFloat(String(dr.values[11]))) || 0;
-    outputRows.push(dr.values);
+    outputRows.push(dr.staticValues);
+    const sheetRowNum = outputRows.length;
+    dataRowNums.push(sheetRowNum);
+    if (groupStartSheet === -1) groupStartSheet = sheetRowNum;
   });
   flushSubtotal();
 
+  // Write all static values at once
   finalSheet
-    .getRange(1, 1, outputRows.length, finalHeaders.length)
+    .getRange(1, 1, outputRows.length, numCols)
     .setValues(outputRows);
 
+  // --- Write formulas for computed columns on each data row ---
+  dataRowNums.forEach((r) => {
+    finalSheet.getRange(r, 10).setFormula(`=H${r}+I${r}`);           // Hours Worked
+    finalSheet.getRange(r, 11).setFormula(`=I${r}*F${r}`);           // OT Pay
+    finalSheet.getRange(r, 12).setFormula(`=J${r}*F${r}`);           // Total Pay
+    finalSheet.getRange(r, 14).setFormula(`=F${r}*M${r}*J${r}`);     // WC Value
+  });
+
+  // --- Write SUM formulas on subtotal rows ---
+  groupBounds.forEach(({ subtotalSheet, startSheet, endSheet }) => {
+    finalSheet.getRange(subtotalSheet, 14).setFormula(`=SUM(N${startSheet}:N${endSheet})`);
+  });
+
   // --- Formatting: main header ---
-  const headerRange = finalSheet.getRange(1, 1, 1, finalHeaders.length);
+  const headerRange = finalSheet.getRange(1, 1, 1, numCols);
   headerRange.setFontWeight("bold");
   headerRange.setBackground("#2E7D32");
   headerRange.setFontColor("#FFFFFF");
 
   // --- Formatting: group header rows ---
   groupRows.forEach((rowNum) => {
-    const groupRange = finalSheet.getRange(rowNum, 1, 1, finalHeaders.length);
-    groupRange.setFontWeight("bold");
-    groupRange.setBackground("#E8F5E9");
-    groupRange.setFontColor("#1B5E20");
-    groupRange.setFontSize(10);
+    const r = finalSheet.getRange(rowNum, 1, 1, numCols);
+    r.setFontWeight("bold");
+    r.setBackground("#E8F5E9");
+    r.setFontColor("#1B5E20");
+    r.setFontSize(10);
   });
 
   // --- Formatting: subtotal rows ---
   subtotalRows.forEach((rowNum) => {
-    const subtotalRange = finalSheet.getRange(
-      rowNum,
-      1,
-      1,
-      finalHeaders.length,
-    );
-    subtotalRange.setFontWeight("bold");
-    subtotalRange.setBackground("#C8E6C9");
-    subtotalRange.setFontColor("#1B5E20");
-    subtotalRange.setFontStyle("italic");
-    finalSheet.getRange(rowNum, 12, 1, 1).setNumberFormat("$#,##0.00");
+    const r = finalSheet.getRange(rowNum, 1, 1, numCols);
+    r.setFontWeight("bold");
+    r.setBackground("#C8E6C9");
+    r.setFontColor("#1B5E20");
+    r.setFontStyle("italic");
+    finalSheet.getRange(rowNum, 14, 1, 1).setNumberFormat("$#,##0.00"); // WC Value (col N)
   });
 
   // --- Formatting: data columns ---
-  const dataRowCount = outputRows.length - 1;
-  if (dataRowCount > 0) {
-    finalSheet.getRange(2, 5, dataRowCount, 1).setNumberFormat("MM/DD/YYYY"); // Check Week
-    finalSheet.getRange(2, 6, dataRowCount, 1).setNumberFormat("$#,##0.00"); // Hourly Wage
-    finalSheet.getRange(2, 8, dataRowCount, 1).setNumberFormat("0.00"); // Hours Worked
-    finalSheet.getRange(2, 9, dataRowCount, 1).setNumberFormat("$#,##0.00"); // OT Pay
-    finalSheet.getRange(2, 10, dataRowCount, 1).setNumberFormat("$#,##0.00"); // Total Pay
-    finalSheet.getRange(2, 12, dataRowCount, 1).setNumberFormat("$#,##0.00"); // WC Value
+  const totalRowCount = outputRows.length - 1;
+  if (totalRowCount > 0) {
+    finalSheet.getRange(2, 5,  totalRowCount, 1).setNumberFormat("MM/DD/YYYY"); // E Check Week
+    finalSheet.getRange(2, 6,  totalRowCount, 1).setNumberFormat("$#,##0.00");  // F Hourly Wage
+    finalSheet.getRange(2, 8,  totalRowCount, 1).setNumberFormat("0.00");        // H Reg Hours
+    finalSheet.getRange(2, 9,  totalRowCount, 1).setNumberFormat("0.00");        // I OT Hours
+    finalSheet.getRange(2, 10, totalRowCount, 1).setNumberFormat("0.00");        // J Hours Worked
+    finalSheet.getRange(2, 11, totalRowCount, 1).setNumberFormat("$#,##0.00");  // K OT Pay
+    finalSheet.getRange(2, 12, totalRowCount, 1).setNumberFormat("$#,##0.00");  // L Total Pay
+    finalSheet.getRange(2, 13, totalRowCount, 1).setNumberFormat("0.000%");      // M WC Rate
+    finalSheet.getRange(2, 14, totalRowCount, 1).setNumberFormat("$#,##0.00");  // N WC Value
   }
 
   // Auto-fit all columns
-  for (let c = 1; c <= finalHeaders.length; c++) {
-    finalSheet.autoResizeColumn(c);
-  }
+  finalSheet.autoResizeColumns(1, numCols);
 
   ss.toast(
     `Final report built — ${dataRows.length} employees in ${groupRows.length} WC Code groups. Check Week: ${checkWeek.toLocaleDateString()}`,
