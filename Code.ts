@@ -361,55 +361,52 @@ function buildFinalReport(): void {
     birthday:   17, // R
   };
 
-  // --- Collect rows, skipping any with missing key data ---
+  // --- Collect all rows — NOT FOUND values are included and visible in the report ---
   const dataRows: DataRow[] = [];
   for (let i = 1; i < cleanData.length; i++) {
     const row = cleanData[i];
-    const empName    = row[C.empName];
-    const ssn        = row[C.ssn];
-    const hireDate   = row[C.hireDate];
-    const wcCode     = row[C.wcCode];
-    const state      = row[C.state];
+    const empName       = row[C.empName];
+    const ssn           = row[C.ssn];
+    const hireDate      = row[C.hireDate];
+    const wcCode        = row[C.wcCode];
+    const state         = row[C.state];
     const hourlyWageStr = row[C.hourlyWage];
-    const wcRateStr  = row[C.wcRate];
-    const dob        = row[C.birthday];
+    const wcRateStr     = row[C.wcRate];
+    const dob           = row[C.birthday];
 
-    // Skip rows with any missing key field — they belong in Data Needs
+    const regHours = parseFloat(row[C.regHours]) || 0;
+    const otHours  = parseFloat(row[C.otHours])  || 0;
+
+    // For numeric lookup fields, write the parsed number when valid or "NOT FOUND" when missing
+    // so formula cells can IFERROR gracefully and the issue is clearly visible
     const isMissing = (v: string) => v === "NOT FOUND" || v === "";
-    if (
-      isMissing(ssn) ||
-      isMissing(hireDate) ||
-      isMissing(wcCode) ||
-      isMissing(state) ||
-      isMissing(hourlyWageStr) ||
-      isMissing(dob)
-    ) continue;
-
-    const hourlyWage = parseFloat(hourlyWageStr.replace(/[$,]/g, "")) || 0;
+    const hourlyWageVal: CellValue = isMissing(hourlyWageStr)
+      ? "NOT FOUND"
+      : parseFloat(hourlyWageStr.replace(/[$,]/g, "")) || 0;
     // WC Rate stored as decimal so formula arithmetic works (display format restores %)
-    const wcRate     = parseFloat(wcRateStr.replace(/%/g, "")) / 100 || 0;
-    const regHours   = parseFloat(row[C.regHours]) || 0;
-    const otHours    = parseFloat(row[C.otHours])  || 0;
+    const wcRateVal: CellValue = isMissing(wcRateStr)
+      ? "NOT FOUND"
+      : parseFloat(wcRateStr.replace(/%/g, "")) / 100 || 0;
 
     dataRows.push({
-      wcCode,
+      wcCode: isMissing(wcCode) ? "NOT FOUND" : wcCode,
       state,
       empName,
       staticValues: [
-        empName,    // A(1)  Name
-        ssn,        // B(2)  SS#
-        hireDate,   // C(3)  Employee Hire Date
-        wcCode,     // D(4)  WKC Code
-        checkWeek,  // E(5)  Check Week
-        hourlyWage, // F(6)  Hourly Wage
-        dob,        // G(7)  DOB
-        regHours,   // H(8)  Reg Hours
-        otHours,    // I(9)  OT Hours
-        "",         // J(10) Hours Worked  ← formula
-        "",         // K(11) OT Pay        ← formula
-        "",         // L(12) Total Pay     ← formula
-        wcRate,     // M(13) WC Rate
-        "",         // N(14) WC Value      ← formula
+        empName,       // A(1)  Name
+        ssn,           // B(2)  SS#
+        hireDate,      // C(3)  Employee Hire Date
+        wcCode,        // D(4)  WKC Code
+        checkWeek,     // E(5)  Check Week
+        hourlyWageVal, // F(6)  Hourly Wage
+        dob,           // G(7)  DOB
+        regHours,      // H(8)  Reg Hours
+        otHours,       // I(9)  OT Hours
+        "",            // J(10) Hours Worked  ← formula
+        "",            // K(11) OT Pay        ← formula
+        "",            // L(12) Total Pay     ← formula
+        wcRateVal,     // M(13) WC Rate
+        "",            // N(14) WC Value      ← formula
       ],
     });
   }
@@ -480,11 +477,12 @@ function buildFinalReport(): void {
     .setValues(outputRows);
 
   // --- Write formulas for computed columns on each data row ---
+  // IFERROR("") keeps NOT FOUND rows clean when numeric inputs are missing
   dataRowNums.forEach((r) => {
-    finalSheet.getRange(r, 10).setFormula(`=H${r}+I${r}`);           // Hours Worked
-    finalSheet.getRange(r, 11).setFormula(`=I${r}*F${r}`);           // OT Pay
-    finalSheet.getRange(r, 12).setFormula(`=H${r}*F${r}+K${r}`);     // Total Pay (reg pay + OT pay)
-    finalSheet.getRange(r, 14).setFormula(`=F${r}*M${r}*J${r}`);     // WC Value
+    finalSheet.getRange(r, 10).setFormula(`=IFERROR(H${r}+I${r},"")`);           // Hours Worked
+    finalSheet.getRange(r, 11).setFormula(`=IFERROR(I${r}*F${r},"")`);           // OT Pay
+    finalSheet.getRange(r, 12).setFormula(`=IFERROR(H${r}*F${r}+K${r},"")`);     // Total Pay
+    finalSheet.getRange(r, 14).setFormula(`=IFERROR(F${r}*M${r}*J${r},"")`);     // WC Value
   });
 
   // --- Write SUM formulas on subtotal rows ---
@@ -531,8 +529,34 @@ function buildFinalReport(): void {
     finalSheet.getRange(2, 14, totalRowCount, 1).setNumberFormat("$#,##0.00");  // N WC Value
   }
 
+  // --- Hours reconciliation check block in cols O (label) and P (value) ---
+  // Compares total hours on the raw sheet vs what landed in the final report.
+  // P3 should be 0; it turns red if there is a discrepancy.
+  const checkLabels = [
+    ["Raw Hours:"],
+    ["Final Hours:"],
+    ["Check (should be 0):"],
+  ];
+  finalSheet.getRange(1, 15, 3, 1).setValues(checkLabels);
+  finalSheet.getRange(1, 15, 3, 1).setFontWeight("bold");
+
+  finalSheet.getRange(1, 16).setFormula("=SUM(raw!G2:G)+SUM(raw!H2:H)"); // raw reg + OT
+  finalSheet.getRange(2, 16).setFormula("=SUM(H2:H)+SUM(I2:I)");          // final reg + OT
+  finalSheet.getRange(3, 16).setFormula("=P1-P2");
+  finalSheet.getRange(1, 16, 3, 1).setNumberFormat("0.00");
+
+  // Highlight check cell red if non-zero
+  const checkCell = finalSheet.getRange(3, 16);
+  const checkRule = SpreadsheetApp.newConditionalFormatRule()
+    .whenNumberNotEqualTo(0)
+    .setBackground("#FFCDD2")
+    .setFontColor("#B71C1C")
+    .setRanges([checkCell])
+    .build();
+  finalSheet.setConditionalFormatRules([checkRule]);
+
   // Auto-fit all columns
-  finalSheet.autoResizeColumns(1, numCols);
+  finalSheet.autoResizeColumns(1, numCols + 2); // include O and P
 
   ss.toast(
     `Final report built — ${dataRows.length} employees in ${groupRows.length} WC Code groups. Check Week: ${checkWeek.toLocaleDateString()}`,
