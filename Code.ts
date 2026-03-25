@@ -370,6 +370,16 @@ function buildFinalReport(): void {
     const otPay = otHours * hourlyWage;
     const totalPay = hoursWorked * hourlyWage;
 
+    // Skip rows with any NOT FOUND in key fields — they belong in Data Needs, not the final report
+    if (
+      ssn === "NOT FOUND" ||
+      hireDate === "NOT FOUND" ||
+      wcCode === "NOT FOUND" ||
+      state === "NOT FOUND" ||
+      row[C.hourlyWage] === "NOT FOUND" ||
+      dob === "NOT FOUND"
+    ) continue;
+
     dataRows.push({
       wcCode,
       state,
