@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2019"],
+    "target": "ES2019",
+    "experimentalDecorators": true,
+    "strict": true,
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": ["*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

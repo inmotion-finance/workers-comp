@@ -1,0 +1,26 @@
+{
+  "name": "workers-comp",
+  "version": "1.0.0",
+  "description": "Workers' Comp Google Apps Script automation",
+  "main": "Code.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc && cp appsscript.json dist/appsscript.json",
+    "deploy": "npm run build && clasp push"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/google-apps-script": "^2.0.8",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "globals": "^17.1.0",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.53.1"
+  }
+}
