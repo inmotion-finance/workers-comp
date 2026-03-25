@@ -618,16 +618,19 @@ function buildDataNeeds(): void {
     const birthday = row[C.birthday];
     const wage = row[C.wage];
 
+    const ssnMissing      = ssn === "NOT FOUND" || ssn === "";
+    const birthdayMissing = birthday === "NOT FOUND" || birthday === "";
+    const wageMissing     = wage === "NOT FOUND" || wage === "";
+
     // Only include rows where at least one of the three fields is missing
-    if (ssn !== "NOT FOUND" && birthday !== "NOT FOUND" && wage !== "NOT FOUND")
-      continue;
+    if (!ssnMissing && !birthdayMissing && !wageMissing) continue;
 
     outputRows.push([
       row[C.empName],
       row[C.adpId],
-      ssn === "NOT FOUND" ? "" : ssn,
-      birthday === "NOT FOUND" ? "" : birthday,
-      wage === "NOT FOUND" ? "" : wage,
+      ssnMissing      ? "" : ssn,
+      birthdayMissing ? "" : birthday,
+      wageMissing     ? "" : wage,
     ]);
   }
 
