@@ -2,9 +2,10 @@
   "compilerOptions": {
     "lib": ["ES2019"],
     "target": "ES2019",
+    "types": ["google-apps-script"],
     "experimentalDecorators": true,
     "strict": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "skipLibCheck": true,
     "noUnusedLocals": true,
     "outDir": "dist",
